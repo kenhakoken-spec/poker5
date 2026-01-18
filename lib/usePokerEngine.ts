@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { PokerHandEngine, POSITION_ORDER } from './PokerHandEngine';
-import type { Position, ActionType, BoardState, OpponentType, HandResult } from '@/types/poker';
+import type { Position, ActionType, BoardState, OpponentType, OpponentStyle } from '@/types/poker';
+import { addDebugLog } from './debugLogger';
 
 /**
  * ポーカーエンジンを使用するカスタムフック
@@ -88,28 +89,30 @@ export interface EnhancedPokerState {
   currentPhase: 'Preflop' | 'Flop' | 'Turn' | 'River';
   currentActor: Position | null;
   currentBet: number;
-  actions: Array<{
-    id: string;
-    position: Position;
-    action: ActionType;
-    betSize?: number;
-    potSize: number;
-    timestamp: number;
-    phase: 'Preflop' | 'Flop' | 'Turn' | 'River';
-    opponentType?: OpponentType;
-  }>;
-  board: BoardState;
-  currentOpponentType: OpponentType;
+    actions: Array<{
+      id: string;
+      position: Position;
+      action: ActionType;
+      betSize?: number;
+      potSize: number;
+      timestamp: number;
+      phase: 'Preflop' | 'Flop' | 'Turn' | 'River';
+      opponentType?: OpponentType;
+      opponentStyle?: OpponentStyle;
+    }>;
+    board: BoardState;
+    currentOpponentType: OpponentType;
+    currentOpponentStyle: OpponentStyle;
   isComplete: boolean;
   waitingForBoard: boolean;
   availablePositions: Position[];
   availableActions: ActionType[];
   raiseLabel: string; // "Open", "3-bet", "4-bet", "Bet", "Raise", "Re-raise"
   raiseCount: number;
-  players: Array<{ position: Position; folded: boolean; isHero: boolean; contributed: number }>;
-  result?: HandResult; // Add result
-  isReadyForResult: boolean; // Add flag for result input readiness
-  completionType?: 'showdown' | 'fold' | 'allin'; // Add completion type
+    players: Array<{ position: Position; folded: boolean; isHero: boolean; contributed: number }>;
+    result?: HandResult; // Add result
+    isReadyForResult: boolean; // Add flag for result input readiness
+    completionType?: 'showdown' | 'fold' | 'allin'; // Add completion type
 }
 
 /**
@@ -119,7 +122,8 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
   const [heroPosition, setHeroPosition] = useState<Position | null>(initialHeroPosition);
   const [heroHand, setHeroHand] = useState<[string, string] | undefined>();
   const [board, setBoard] = useState<BoardState>({});
-  const [currentOpponentType, setCurrentOpponentType] = useState<OpponentType>('Reg');
+  const [currentOpponentType, setCurrentOpponentType] = useState<OpponentType>('Regular');
+  const [currentOpponentStyle, setCurrentOpponentStyle] = useState<OpponentStyle>('unknown');
   const [stackSize, setStackSize] = useState(initialStackSize);
   const [resetKey, setResetKey] = useState(0);
 
@@ -138,9 +142,11 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
   const addPreflopAction = useCallback((
     position: Position,
     actionType: ActionType,
-    betSize?: number
+    betSize?: number,
+    opponentType?: OpponentType,
+    opponentStyle?: OpponentStyle
   ) => {
-    engine.addPreflopAction(position, actionType, betSize);
+    engine.addPreflopAction(position, actionType, betSize, opponentType, opponentStyle);
     refresh();
   }, [engine, refresh]);
 
@@ -148,9 +154,11 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
   const addPostflopAction = useCallback((
     position: Position,
     actionType: ActionType,
-    betSize?: number
+    betSize?: number,
+    opponentType?: OpponentType,
+    opponentStyle?: OpponentStyle
   ) => {
-    engine.addPostflopAction(position, actionType, betSize);
+    engine.addPostflopAction(position, actionType, betSize, opponentType, opponentStyle);
     refresh();
   }, [engine, refresh]);
 
@@ -158,14 +166,28 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
   const addAction = useCallback((
     position: Position,
     actionType: ActionType,
-    betSize?: number
+    betSize?: number,
+    opponentType?: OpponentType,
+    opponentStyle?: OpponentStyle
   ) => {
-    if (state.phase === 'Preflop') {
-      addPreflopAction(position, actionType, betSize);
+    // DEBUG: usePokerEngine addAction
+    const currentPhase = engine.getPhase(); // エンジンから直接フェーズを取得
+    addDebugLog('[usePokerEngine] addAction called', {
+      position,
+      actionType,
+      betSize,
+      opponentType,
+      opponentStyle,
+      phase: currentPhase,
+      statePhase: state.phase
+    });
+    
+    if (currentPhase === 'Preflop') {
+      addPreflopAction(position, actionType, betSize, opponentType, opponentStyle);
     } else {
-      addPostflopAction(position, actionType, betSize);
+      addPostflopAction(position, actionType, betSize, opponentType, opponentStyle);
     }
-  }, [state.phase, addPreflopAction, addPostflopAction]);
+  }, [engine, addPreflopAction, addPostflopAction]);
 
   // ボード確認
   const confirmBoard = useCallback(() => {
@@ -207,43 +229,73 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
     return engine.getAvailableActions(state.currentActor);
   }, [engine, state.currentActor, state.waitingForBoard]);
 
-  // アクションを追加（オポーネントタイプも記録）
+  // アクションを追加（オポーネントタイプとスタイルも記録）
   const addActionWithMetadata = useCallback((
     position: Position,
     actionType: ActionType,
-    betSize?: number
+    betSize?: number,
+    opponentType?: OpponentType,
+    opponentStyle?: OpponentStyle
   ) => {
-    addAction(position, actionType, betSize);
+    // DEBUG: usePokerEngine addActionWithMetadata
+    const finalType = opponentType ?? currentOpponentType;
+    const finalStyle = opponentStyle ?? currentOpponentStyle;
+    addDebugLog('[usePokerEngine] addActionWithMetadata called', {
+      position,
+      actionType,
+      betSize,
+      opponentType,
+      opponentStyle,
+      currentOpponentType,
+      currentOpponentStyle,
+      finalType,
+      finalStyle
+    });
     
-    // アクションに追加のメタデータを付与（オポーネントタイプ）
-    const actions = engine.getActions();
-    if (actions.length > 0) {
-      const lastAction = actions[actions.length - 1];
-      // @ts-ignore - オポーネントタイプを後から追加
-      lastAction.opponentType = currentOpponentType;
+    // アクションにType/Styleを直接渡す（recordActionで設定される）
+    addAction(position, actionType, betSize, finalType, finalStyle);
+    
+    // 状態も更新（次のアクション用）
+    if (opponentType) {
+      setCurrentOpponentType(opponentType);
     }
-  }, [addAction, engine, currentOpponentType]);
+    if (opponentStyle) {
+      setCurrentOpponentStyle(opponentStyle);
+    }
+  }, [addAction, currentOpponentType, currentOpponentStyle]);
 
   // 統合された状態を返す
+  const freshState = engine.getState(); // 最新の状態を取得
+  // DEBUG: Log freshState actions
+  addDebugLog('[usePokerEngine] enhancedState - freshState.actions', {
+    actionsCount: freshState.actions.length,
+    actions: freshState.actions.map(a => ({
+      position: a.position,
+      action: a.action,
+      opponentType: a.opponentType,
+      opponentStyle: a.opponentStyle
+    }))
+  });
   const enhancedState: EnhancedPokerState = {
     heroPosition,
     heroHand,
     stackSize,
-    potSize: state.pot,
+    potSize: freshState.pot,
     potDetails: engine.getPotDetails(),
-    currentPhase: state.phase,
-    currentActor: state.currentActor,
-    currentBet: state.currentBet,
-    actions: state.actions,
+    currentPhase: freshState.phase,
+    currentActor: freshState.currentActor,
+    currentBet: freshState.currentBet,
+    actions: freshState.actions, // 最新のアクション配列を使用
     board,
     currentOpponentType,
-    isComplete: state.isComplete,
-    waitingForBoard: state.waitingForBoard,
+    currentOpponentStyle,
+    isComplete: freshState.isComplete,
+    waitingForBoard: freshState.waitingForBoard,
     availablePositions: getAvailablePositions(),
     availableActions: getAvailableActions(),
     raiseLabel: engine.getRaiseLabel(),
     raiseCount: engine.getRaiseCount(),
-    players: state.players.map(p => ({ 
+    players: freshState.players.map(p => ({ 
       position: p.position, 
       folded: p.folded, 
       isHero: p.isHero,
@@ -251,7 +303,7 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
     })),
     result: engine.getHandResult() || undefined,
     isReadyForResult: engine.isReadyForResult(),
-    completionType: state.isComplete ? engine.getCompletionType() : undefined,
+    completionType: freshState.isComplete ? engine.getCompletionType() : undefined,
   };
 
   return {
@@ -262,29 +314,17 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
     },
     setHeroHand,
     setBoard: (newBoard: BoardState) => {
-      const oldHasRiver = !!board.river;
-      const newHasRiver = !!newBoard.river;
+      setBoard(newBoard);
+      // ボードが設定されたら、エンジンにボード入力完了を通知
+      // ただし、新しいカードが追加された場合のみ
       const oldKeys = Object.keys(board).length;
       const newKeys = Object.keys(newBoard).length;
-      
-      setBoard(newBoard);
-      
-      // リバーが新しく設定された場合は必ずconfirmBoardを呼ぶ（リバー完了後はハンド完了のため）
-      if (!oldHasRiver && newHasRiver) {
-        // リバー入力時は、エンジンのphaseがRiverになっているか確認してからconfirmBoardを呼ぶ
-        // confirmBoard内でRiverの場合の処理が実行される
-        engine.confirmBoard();
-        // 状態を強制的に更新
-        refresh();
-        return;
-      }
-      
-      // その他の場合（フロップ、ターン）は新しいカードが追加された場合のみ
-      if (state.waitingForBoard && newKeys > oldKeys) {
+      if (newKeys > oldKeys && state.waitingForBoard) {
         confirmBoard();
       }
     },
     setCurrentOpponentType,
+    setCurrentOpponentStyle,
     setStackSize,
     addAction: addActionWithMetadata,
     setHandResult: (result: HandResult) => {
@@ -296,7 +336,8 @@ export function usePokerEngineWithState(initialHeroPosition: Position | null = n
       setHeroPosition(null);
       setHeroHand(undefined);
       setBoard({});
-      setCurrentOpponentType('Reg');
+      setCurrentOpponentType('Regular');
+      setCurrentOpponentStyle('unknown');
       setResetKey(prev => prev + 1);
     },
   };

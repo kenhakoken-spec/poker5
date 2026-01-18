@@ -21,6 +21,7 @@ export function EnhancedPokerTable() {
     setHeroHand,
     setBoard,
     setCurrentOpponentType,
+    setCurrentOpponentStyle,
     setStackSize,
     addAction,
     setHandResult,
@@ -29,6 +30,7 @@ export function EnhancedPokerTable() {
 
   const [boardModalOpen, setBoardModalOpen] = useState(false);
   const [resultModalOpen, setResultModalOpen] = useState(false);
+  const [resultModalDismissed, setResultModalDismissed] = useState(false);
   const [prevPhase, setPrevPhase] = useState<'Preflop' | 'Flop' | 'Turn' | 'River'>('Preflop');
   const [activeTab, setActiveTab] = useState<'input' | 'history'>('input');
   const [showActionLogAfterFinish, setShowActionLogAfterFinish] = useState(false);
@@ -68,10 +70,11 @@ export function EnhancedPokerTable() {
 
   // ハンド完了を監視して結果入力モーダルを自動的に開く
   useEffect(() => {
-    if (state.isReadyForResult && !resultModalOpen && !boardModalOpen) {
+    if (state.isReadyForResult && !resultModalOpen && !boardModalOpen && !resultModalDismissed) {
       setResultModalOpen(true);
+      setResultModalDismissed(false); // リセット
     }
-  }, [state.isReadyForResult, resultModalOpen, boardModalOpen]);
+  }, [state.isReadyForResult, resultModalOpen, boardModalOpen, resultModalDismissed]);
 
   // ハンド完了かつ結果が設定されたら自動保存
   useEffect(() => {
@@ -120,18 +123,8 @@ export function EnhancedPokerTable() {
     // モーダルを閉じる
     setResultModalOpen(false);
     
-    // 現在のハンド状態を保存してアクションログ画面を表示
-    setCompletedHandState({
-      actions: state.actions,
-      potSize: state.potSize,
-      heroPosition: state.heroPosition,
-      heroHand: state.heroHand,
-      board: state.board,
-      currentPhase: state.currentPhase,
-      result: result,
-      stackSize: state.stackSize,
-    });
-    setShowActionLogAfterFinish(true);
+    // ハンドヒストリー画面に遷移
+    setActiveTab('history');
   };
   
   // BackボタンでTOP画面に戻る
@@ -141,6 +134,7 @@ export function EnhancedPokerTable() {
     // リセットして次のハンドに入力可能にする
     reset();
     savedHandRef.current = null;
+    setResultModalDismissed(false);
   };
 
   return (
@@ -232,6 +226,7 @@ export function EnhancedPokerTable() {
                 onAddAction={addAction}
                 onSetHeroPosition={setHeroPosition}
                 onSetOpponentType={setCurrentOpponentType}
+                onSetOpponentStyle={setCurrentOpponentStyle}
               />
               
               {/* リセットボタン - 右下に小さく配置 */}
@@ -239,6 +234,7 @@ export function EnhancedPokerTable() {
                 onClick={() => {
                   savedHandRef.current = null;
                   reset();
+                  setResultModalDismissed(false);
                 }}
                 className="fixed bottom-4 right-4 px-3 py-2 bg-gray-800/90 hover:bg-gray-700 rounded-full text-xs text-gray-400 hover:text-gray-200 transition-all shadow-lg border border-gray-700 z-40"
                 title="Reset Hand"
@@ -260,7 +256,18 @@ export function EnhancedPokerTable() {
             {/* 結果入力モーダル（自動オープン） */}
             <HandResultModal
               isOpen={resultModalOpen}
-              onClose={() => setResultModalOpen(false)}
+              onClose={() => {
+                console.log('=== ONCLOSE CALLBACK CALLED ===');
+                console.log('Setting resultModalOpen to false');
+                setResultModalOpen(false);
+                // キャンセル時はハンドをリセットして操作可能にする
+                reset();
+                savedHandRef.current = null;
+                // リセット後にフラグもリセット（次のハンドでモーダルが開けるように）
+                setTimeout(() => {
+                  setResultModalDismissed(false);
+                }, 0);
+              }}
               onSubmit={handleResultSubmit}
               activePlayers={activePlayers}
               allPlayers={allPlayers}

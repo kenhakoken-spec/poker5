@@ -159,3 +159,24 @@ export function clearAllHands(): void {
     console.error('Failed to clear hands from localStorage:', error);
   }
 }
+
+/**
+ * ハンドを更新（メモなど）
+ */
+export function updateHand(id: string, updates: Partial<Pick<SavedHand, 'locationMemo' | 'otherMemo' | 'isFavorite'>>): void {
+  // サーバーサイドでは何もしない
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    const hands = getAllHands();
+    const index = hands.findIndex(h => h.id === id);
+    if (index !== -1) {
+      hands[index] = { ...hands[index], ...updates };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(hands));
+    }
+  } catch (error) {
+    console.error('Failed to update hand:', error);
+  }
+}

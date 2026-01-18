@@ -1,8 +1,9 @@
 'use client';
 
-import type { HandAction, Phase, Position, BoardState, OpponentType, HandResult } from '@/types/poker';
+import type { HandAction, Phase, Position, BoardState, OpponentType, OpponentStyle, HandResult } from '@/types/poker';
 import { Copy, Sparkles } from 'lucide-react';
 import { useState } from 'react';
+import { addDebugLog, getDebugLogs } from '@/lib/debugLogger';
 
 interface ActionLogProps {
   actions: HandAction[];
@@ -26,6 +27,7 @@ export function ActionLog({
   result,
 }: ActionLogProps) {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   // スタック情報を計算（アクションによる変化を追跡）
   const calculateStackInfo = () => {
@@ -78,12 +80,36 @@ export function ActionLog({
   };
 
   const formatAction = (action: HandAction): string => {
+    // DEBUG: ActionLog formatAction
+    if (action.position !== heroPosition) {
+      const debugData = {
+        position: action.position,
+        action: action.action,
+        opponentType: action.opponentType,
+        opponentStyle: action.opponentStyle,
+        fullAction: action
+      };
+      console.log('[ActionLog] formatAction - non-hero action:', debugData);
+      addDebugLog('[ActionLog] formatAction', debugData);
+    }
+    
     let actionStr = `${action.position}: ${action.action}`;
     if (action.betSize !== undefined) {
       actionStr += ` ${action.betSize.toFixed(1)}bb`;
     }
-    if (action.opponentType && action.position !== heroPosition) {
-      actionStr += ` (${action.opponentType})`;
+    if (action.position !== heroPosition) {
+      const typeAndStyle: string[] = [];
+      if (action.opponentType) {
+        typeAndStyle.push(action.opponentType);
+      }
+      if (action.opponentStyle && action.opponentStyle !== 'unknown') {
+        typeAndStyle.push(action.opponentStyle);
+      }
+      if (typeAndStyle.length > 0) {
+        actionStr += ` (${typeAndStyle.join(', ')})`;
+      }
+      console.log('[ActionLog] formatAction - final string:', actionStr);
+      addDebugLog('[ActionLog] formatAction - final', { actionStr, position: action.position });
     }
     return actionStr;
   };
@@ -118,6 +144,7 @@ export function ActionLog({
         betSize: action.betSize,
         potSizeAfter: action.potSize,
         opponentType: action.opponentType,
+        opponentStyle: action.opponentStyle,
         isHero: action.position === heroPosition,
         timestamp: action.timestamp,
       })),
@@ -153,6 +180,46 @@ export function ActionLog({
   const handleCopyAndGemini = async () => {
     const analysisData = generateAnalysisData();
     
+    // DEBUG: Log actual actions data - 詳細にチェック
+    const actionsCheck = actions.map((action, idx) => ({
+      index: idx,
+      position: action.position,
+      action: action.action,
+      opponentType: action.opponentType,
+      opponentStyle: action.opponentStyle,
+      hasOpponentType: !!action.opponentType,
+      hasOpponentStyle: !!action.opponentStyle,
+      isHero: action.position === heroPosition,
+      fullAction: action
+    }));
+    addDebugLog('[ActionLog] handleCopyAndGemini - actions prop CHECK', { 
+      actionsCount: actions.length,
+      actionsCheck,
+      analysisDataActionSequence: analysisData.actionSequence.map(a => ({
+        position: a.position,
+        opponentType: a.opponentType,
+        opponentStyle: a.opponentStyle,
+        isHero: a.position === heroPosition
+      }))
+    });
+    
+    actions.forEach((action, idx) => {
+      if (action.position !== heroPosition) {
+        const debugData = {
+          index: idx,
+          position: action.position,
+          action: action.action,
+          opponentType: action.opponentType,
+          opponentStyle: action.opponentStyle,
+          hasOpponentType: !!action.opponentType,
+          hasOpponentStyle: !!action.opponentStyle && action.opponentStyle !== 'unknown',
+          fullAction: action
+        };
+        console.log(`[ActionLog] Action ${idx}:`, debugData);
+        addDebugLog(`[ActionLog] Action ${idx}`, debugData);
+      }
+    });
+    
     let promptText = `テキサスホールデムポーカーにおける以下の自分の動きをGTOやエクスプロイト戦略に則ってフラットにレビューして
 
 【セッション情報】
@@ -166,9 +233,29 @@ export function ActionLog({
 ボード: ${analysisData.boardInfo.board}
 
 【アクション詳細】
-${analysisData.actionSequence.map((action, idx) => 
-  `${idx + 1}. [${action.phase}] ${action.position}: ${action.action}${action.betSize ? ` ${action.betSize.toFixed(1)}bb` : ''}${action.opponentType && action.position !== heroPosition ? ` (${action.opponentType})` : ''}`
-).join('\n')}
+${analysisData.actionSequence.map((action, idx) => {
+  const typeAndStyle: string[] = [];
+  if (action.opponentType && action.position !== heroPosition) {
+    typeAndStyle.push(action.opponentType);
+  }
+  if (action.opponentStyle && action.opponentStyle !== 'unknown' && action.position !== heroPosition) {
+    typeAndStyle.push(action.opponentStyle);
+  }
+  const typeStyleStr = typeAndStyle.length > 0 ? ` (${typeAndStyle.join(', ')})` : '';
+      // DEBUG: Log each formatted action
+      const geminiDebugData = {
+        index: idx + 1,
+        position: action.position,
+        action: action.action,
+        opponentType: action.opponentType,
+        opponentStyle: action.opponentStyle,
+        typeStyleStr,
+        formatted: `${idx + 1}. [${action.phase}] ${action.position}: ${action.action}${action.betSize ? ` ${action.betSize.toFixed(1)}bb` : ''}${typeStyleStr}`
+      };
+      console.log(`[ActionLog] Gemini action ${idx + 1}:`, geminiDebugData);
+      addDebugLog(`[ActionLog] Gemini action ${idx + 1}`, geminiDebugData);
+  return `${idx + 1}. [${action.phase}] ${action.position}: ${action.action}${action.betSize ? ` ${action.betSize.toFixed(1)}bb` : ''}${typeStyleStr}`;
+}).join('\n')}
 
 【ポット情報】
 最終ポット: ${analysisData.potInfo.finalPot}bb`;
@@ -213,38 +300,47 @@ ${analysisData.result.showdownHands.map(p =>
   const stackInfo = calculateStackInfo();
 
   return (
-    <div className="h-full bg-gray-950 px-2 py-1.5 overflow-y-auto flex flex-col">
+    <div className="h-full bg-gray-950 px-2 py-1 overflow-y-auto flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-1.5 flex-shrink-0">
-        <h2 className="text-xs font-semibold text-gray-400">Action Log</h2>
-        {hasActions && (
+      <div className="flex items-center justify-between mb-1 flex-shrink-0">
+        <h2 className="text-[10px] font-semibold text-gray-400">Action Log</h2>
+        <div className="flex items-center gap-1">
           <button
-            onClick={handleCopyAndGemini}
-            className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-600 hover:bg-purple-700 rounded text-[10px] font-semibold transition-colors"
-            title="Copy to clipboard and open Gemini"
+            onClick={() => setShowDebugPanel(!showDebugPanel)}
+            className="px-1.5 py-0.5 bg-red-600 hover:bg-red-700 rounded text-[9px] font-semibold transition-colors"
+            title="Show Debug Panel"
           >
-            {copyStatus === 'copied' ? (
-              <>
-                <Copy className="w-2.5 h-2.5" />
-                <span>Copied!</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-2.5 h-2.5" />
-                <span>Copy & Gemini</span>
-              </>
-            )}
+            DEBUG
           </button>
-        )}
+          {hasActions && (
+            <button
+              onClick={handleCopyAndGemini}
+              className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-600 hover:bg-purple-700 rounded text-[10px] font-semibold transition-colors"
+              title="Copy to clipboard and open Gemini"
+            >
+              {copyStatus === 'copied' ? (
+                <>
+                  <Copy className="w-2.5 h-2.5" />
+                  <span>Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Copy & Gemini</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {hasActions ? (
-          <div className="space-y-0.5">
+          <div className="space-y-0 leading-tight">
             {/* セッション情報 */}
-            <div className="pb-1 border-b border-gray-800 mb-1 space-y-0.5">
-              <div className="text-[10px] font-mono">
+            <div className="pb-0.5 border-b border-gray-800 mb-0.5 space-y-0">
+              <div className="text-[9px] font-mono leading-tight">
                 <span className="text-purple-400 font-semibold">Hero:</span>{' '}
                 <span className="text-gray-300">{heroPosition || 'Not set'}</span>
                 {heroHand && (
@@ -254,7 +350,7 @@ ${analysisData.result.showdownHands.map(p =>
                   </>
                 )}
               </div>
-              <div className="text-[10px] font-mono">
+              <div className="text-[9px] font-mono leading-tight">
                 <span className="text-blue-400 font-semibold">Stack:</span>{' '}
                 <span className="text-gray-300">{stackInfo.initialStack}bb</span>
                 {stackInfo.currentStack !== stackInfo.initialStack && (
@@ -265,7 +361,7 @@ ${analysisData.result.showdownHands.map(p =>
                 )}
               </div>
               {Object.keys(board).length > 0 && currentPhase !== 'Preflop' && (
-                <div className="text-[10px] font-mono">
+                <div className="text-[9px] font-mono leading-tight">
                   <span className="text-green-400 font-semibold">Board:</span>{' '}
                   <span className="text-gray-300">{formatBoard()}</span>
                 </div>
@@ -277,17 +373,33 @@ ${analysisData.result.showdownHands.map(p =>
               const phaseActions = groupedActions[phase];
               if (phaseActions.length === 0) return null;
 
+              // DEBUG: Show action metadata in UI
+              const debugInfo = phaseActions.map(a => ({
+                pos: a.position,
+                act: a.action,
+                type: a.opponentType,
+                style: a.opponentStyle,
+                hasType: !!a.opponentType,
+                hasStyle: !!a.opponentStyle && a.opponentStyle !== 'unknown'
+              }));
+
               return (
-                <div key={phase} className="text-[10px] font-mono">
+                <div key={phase} className="text-[9px] font-mono leading-tight">
                   <span className="text-blue-400 font-semibold">{phase}:</span>{' '}
                   <span className="text-gray-300">{formatPhaseActions(phaseActions)}</span>
+                  {/* DEBUG: Show metadata */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <span className="text-red-400 text-[7px] ml-1" title={JSON.stringify(debugInfo, null, 2)}>
+                      [DBG]
+                    </span>
+                  )}
                 </div>
               );
             })}
             
             {/* ポット情報 */}
             <div className="pt-0.5 border-t border-gray-800 mt-0.5">
-              <span className="text-[10px] font-mono">
+              <span className="text-[9px] font-mono leading-tight">
                 <span className="text-gray-400">Pot:</span>{' '}
                 <span className="text-green-400 font-semibold">{potSize.toFixed(1)}bb</span>
               </span>
@@ -295,8 +407,8 @@ ${analysisData.result.showdownHands.map(p =>
 
             {/* 結果情報 */}
             {result && (
-              <div className="pt-1 border-t border-gray-800 mt-1 space-y-0.5">
-                <div className="text-[10px] font-mono">
+              <div className="pt-0.5 border-t border-gray-800 mt-0.5 space-y-0">
+                <div className="text-[9px] font-mono leading-tight">
                   <span className="text-purple-400 font-semibold">Result:</span>{' '}
                   <span className={result.heroWon ? 'text-green-400' : 'text-red-400'}>
                     {result.heroWon ? 'Won' : 'Lost'}
@@ -306,12 +418,12 @@ ${analysisData.result.showdownHands.map(p =>
                     {result.potAwarded > 0 ? '+' : ''}{result.potAwarded.toFixed(1)}bb
                   </span>
                 </div>
-                <div className="text-[10px] font-mono">
+                <div className="text-[9px] font-mono leading-tight">
                   <span className="text-blue-400 font-semibold">Winner:</span>{' '}
                   <span className="text-gray-300">{result.winner}</span>
                 </div>
                 {result.showdownHands.length > 0 && (
-                  <div className="text-[10px] font-mono space-y-0.5">
+                  <div className="text-[9px] font-mono space-y-0 leading-tight">
                     <span className="text-blue-400 font-semibold">Players:</span>
                     {result.showdownHands.map((player, idx) => {
                       // Determine display based on hand and mucked status
@@ -354,11 +466,47 @@ ${analysisData.result.showdownHands.map(p =>
             )}
           </div>
         ) : (
-          <div className="text-[10px] text-gray-500 italic">
+          <div className="text-[9px] text-gray-500 italic leading-tight">
             No actions recorded yet
           </div>
         )}
       </div>
+      
+      {/* Debug Panel */}
+      {showDebugPanel && (
+        <div className="absolute inset-0 bg-black/95 z-50 overflow-y-auto p-2 text-[8px] font-mono">
+          <div className="flex items-center justify-between mb-2 sticky top-0 bg-black pb-2">
+            <h3 className="text-[10px] font-bold text-red-400">Debug Logs & Current Actions</h3>
+            <button
+              onClick={() => setShowDebugPanel(false)}
+              className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-[9px]"
+            >
+              Close
+            </button>
+          </div>
+          
+          {/* Current Actions Check */}
+          <div className="mb-4 p-2 bg-gray-900 rounded border border-yellow-600">
+            <div className="text-yellow-400 font-bold mb-1">Current Actions Prop (count: {actions.length})</div>
+            {actions.map((action, idx) => (
+              <div key={idx} className="text-[7px] text-gray-300 mb-1">
+                [{idx}] {action.position} {action.action} | Type: {action.opponentType || 'undefined'} | Style: {action.opponentStyle || 'undefined'}
+              </div>
+            ))}
+          </div>
+          
+          <div className="space-y-1">
+            {getDebugLogs().slice(-30).map((log: any, idx: number) => (
+              <div key={idx} className="border-b border-gray-700 pb-1">
+                <div className="text-yellow-400 font-semibold">{log.source}</div>
+                <pre className="text-gray-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-[7px]">
+                  {JSON.stringify(log.data, null, 2)}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

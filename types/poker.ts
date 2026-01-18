@@ -2,7 +2,8 @@ export type Position = 'SB' | 'BB' | 'UTG' | 'HJ' | 'CO' | 'BTN';
 
 export type ActionType = 'Fold' | 'Check' | 'Call' | 'Bet' | 'Raise';
 
-export type OpponentType = 'Reg' | 'Fish' | 'Nit';
+export type OpponentType = 'Regular' | 'Fish';
+export type OpponentStyle = 'Tight-Aggressive' | 'Loose-Aggressive' | 'Tight-Passive' | 'Loose-Passive' | 'unknown';
 
 export type BetSizePercentage = '25%' | '33%' | '50%' | '75%' | '100%' | 'All-in';
 
@@ -35,6 +36,7 @@ export interface HandAction {
   timestamp: number;
   phase: Phase; // 追加: フェーズ情報
   opponentType?: OpponentType;
+  opponentStyle?: OpponentStyle;
 }
 
 export interface BoardState {
@@ -72,8 +74,11 @@ export interface SavedHand {
   timestamp: number;   // 保存日時
   heroPosition: Position | null;
   heroHand?: [string, string]; // ヒーローのハンド（オプション、後方互換性のため）
-  villainType: OpponentType;  // 'Reg' | 'Fish' | 'Nit'
+  villainType: OpponentType;  // 'Regular' | 'Fish'
   board: string[];      // ['As', 'Kd', '2h', ...]
   actions: string[];    // ['[Preflop] UTG Raise 3bb', '[Flop] BTN Call', ...]
   finalPot: number;     // 最終ポット額（BB単位）
+  locationMemo?: string; // 場所のメモ
+  otherMemo?: string;    // その他メモ
+  isFavorite?: boolean;  // お気に入りフラグ
 }

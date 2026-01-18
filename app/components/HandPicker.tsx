@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { X, Hand } from 'lucide-react';
 
 const suits = ['♠', '♥', '♦', '♣'];
-const ranks = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
+const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
 // スートのみの色を返す（スート列用）
 function getSuitColorOnly(suit: string): string {
@@ -88,10 +88,10 @@ export function HandPicker({ hand, onHandChange }: HandPickerProps) {
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-2">
-          <div className="bg-gray-800 rounded-lg w-full max-w-[400px] max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-3 border-b border-gray-700">
-              <h2 className="text-base font-semibold">Select Your Hand</h2>
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-end backdrop-blur-sm">
+          <div className="bg-gray-800 rounded-t-2xl w-full max-h-[85vh] overflow-y-auto animate-slide-up shadow-2xl">
+            <div className="sticky top-0 bg-gray-800 flex items-center justify-between p-4 border-b border-gray-700 z-10">
+              <h2 className="text-lg font-semibold">Select Your Hand</h2>
               <button
                 onClick={() => {
                   setIsOpen(false);
@@ -99,11 +99,11 @@ export function HandPicker({ hand, onHandChange }: HandPickerProps) {
                 }}
                 className="p-1.5 hover:bg-gray-700 rounded"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 space-y-3">
+            <div className="p-4 space-y-4">
               {/* 選択中のカード表示 */}
               <div>
                 <h3 className="text-xs font-semibold text-gray-400 mb-2">Selected Hand</h3>
@@ -136,16 +136,16 @@ export function HandPicker({ hand, onHandChange }: HandPickerProps) {
                 </p>
               </div>
 
-              {/* カード選択グリッド - マトリックス形式（モバイル最適化） */}
+              {/* カード選択グリッド - マトリックス形式（モバイル最適化、画面幅いっぱい） */}
               <div>
-                <h3 className="text-xs font-semibold text-gray-400 mb-2">Card Selection</h3>
+                <h3 className="text-xs font-semibold text-gray-400 mb-3">Card Selection</h3>
                 <div className="overflow-x-auto">
-                  <table className="border-collapse">
+                  <table className="border-collapse w-full">
                     <thead>
                       <tr>
-                        <th className="w-4"></th>
+                        <th className="w-8 sm:w-10"></th>
                         {ranks.map((rank) => (
-                          <th key={rank} className="px-px py-px text-[8px] text-gray-400 font-semibold">
+                          <th key={rank} className="px-1 py-2 text-[9px] sm:text-[10px] text-gray-400 font-semibold">
                             {rank}
                           </th>
                         ))}
@@ -154,23 +154,23 @@ export function HandPicker({ hand, onHandChange }: HandPickerProps) {
                     <tbody>
                       {suits.map((suit) => (
                         <tr key={suit}>
-                          <td className={`px-0.5 py-px text-center font-bold text-[11px] ${getSuitColorOnly(suit)}`}>
+                          <td className={`px-1 py-1.5 text-center font-bold text-xs sm:text-sm ${getSuitColorOnly(suit)}`}>
                             {suit}
                           </td>
                           {ranks.map((rank) => {
                             const card = `${rank}${suit}`;
                             const isSelected = selectedCards.includes(card);
                             return (
-                              <td key={card} className="p-px">
+                              <td key={card} className="p-1">
                                 <button
                                   onClick={() => handleCardSelect(card)}
-                                  className={`w-5 h-5 rounded text-[9px] font-bold transition-colors ${
+                                  className={`w-full h-10 sm:h-12 rounded-md text-xs sm:text-sm font-bold transition-all ${
                                     isSelected
-                                      ? 'bg-green-600 text-white'
-                                      : 'bg-gray-700 hover:bg-gray-600 active:scale-110'
+                                      ? 'bg-green-600 text-white shadow-lg shadow-green-500/50 scale-105 ring-2 ring-green-400'
+                                      : 'bg-gray-700 hover:bg-gray-600 hover:border-purple-500 active:scale-95 border border-gray-600'
                                   }`}
                                 >
-                                  <span className={getSuitColorOnly(suit)}>
+                                  <span className={isSelected ? 'text-white' : getSuitColorOnly(suit)}>
                                     {rank}
                                   </span>
                                 </button>

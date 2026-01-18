@@ -5,7 +5,7 @@ import { X, Edit3 } from 'lucide-react';
 import type { BoardState } from '@/types/poker';
 
 const suits = ['♠', '♥', '♦', '♣'];
-const ranks = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
+const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
 // スートのみの色を返す（スート列用）
 function getSuitColorOnly(suit: string): string {
@@ -243,19 +243,19 @@ export function BoardPicker({ board, onBoardChange, isOpen: externalIsOpen, onOp
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-2">
-          <div className="bg-gray-800 rounded-lg w-full max-w-[400px] max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between p-3 border-b border-gray-700">
-              <h2 className="text-base font-semibold">Board Cards</h2>
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-end backdrop-blur-sm">
+          <div className="bg-gray-800 rounded-t-2xl w-full max-h-[85vh] flex flex-col animate-slide-up shadow-2xl">
+            <div className="sticky top-0 bg-gray-800 flex items-center justify-between p-4 border-b border-gray-700 z-10">
+              <h2 className="text-lg font-semibold">Board Cards</h2>
               <button
                 onClick={() => setIsOpen(false)}
                 className="p-1.5 hover:bg-gray-700 rounded"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 space-y-3 flex-1 overflow-y-auto">
+            <div className="p-4 space-y-4 flex-1 overflow-y-auto">
               {/* 5枚のカードを横並び表示 - モバイル対応で縮小 */}
               <div>
                 <h3 className="text-xs font-semibold text-gray-400 mb-2">Board (5 cards)</h3>
@@ -312,63 +312,67 @@ export function BoardPicker({ board, onBoardChange, isOpen: externalIsOpen, onOp
                 </h3>
                 
                 {/* ランクヘッダー */}
-                <div className="flex gap-px mb-px">
-                  <div className="w-5"></div>
-                  {ranks.map((rank) => (
-                    <div key={rank} className="w-5 text-center text-[8px] text-gray-400 font-semibold">
-                      {rank}
-                    </div>
-                  ))}
-                </div>
-                
-                {/* カードグリッド */}
-                {suits.map((suit) => (
-                  <div key={suit} className="flex gap-px mb-px">
-                    {/* スート列 */}
-                    <div className={`w-5 flex items-center justify-center font-bold text-[11px] ${getSuitColorOnly(suit)}`}>
-                      {suit}
-                    </div>
-                    
-                    {/* カード行 */}
-                    {ranks.map((rank) => {
-                      const card = `${rank}${suit}`;
-                      const isUsed = localBoardCards.some((c, idx) => c === card && idx !== editingIndex);
-                      const isHeroCard = heroHand?.includes(card);
-                      const isSelected = editingIndex !== null && localBoardCards[editingIndex] === card;
-                      const canClick = editingIndex !== null && !isUsed && !isHeroCard;
-                      
-                      return (
-                        <button
-                          key={card}
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (canClick) {
-                              handleCardSelect(card);
-                            }
-                          }}
-                          disabled={!canClick}
-                          className={`w-5 h-5 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
-                            isSelected
-                              ? 'bg-blue-600 ring-1 ring-blue-400 text-white'
-                              : isUsed
-                              ? 'bg-gray-800 text-gray-600 cursor-not-allowed line-through'
-                              : isHeroCard
-                              ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-50'
-                              : canClick
-                              ? 'bg-gray-700 hover:bg-gray-600 active:bg-blue-500 cursor-pointer'
-                              : 'bg-gray-800 text-gray-600'
-                          }`}
-                        >
-                          <span className={canClick || isSelected ? getSuitColorOnly(suit) : ''}>
+                <div className="overflow-x-auto">
+                  <table className="border-collapse w-full">
+                    <thead>
+                      <tr>
+                        <th className="w-8 sm:w-10"></th>
+                        {ranks.map((rank) => (
+                          <th key={rank} className="px-1 py-2 text-[9px] sm:text-[10px] text-gray-400 font-semibold">
                             {rank}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {suits.map((suit) => (
+                        <tr key={suit}>
+                          <td className={`px-1 py-1.5 text-center font-bold text-xs sm:text-sm ${getSuitColorOnly(suit)}`}>
+                            {suit}
+                          </td>
+                          {ranks.map((rank) => {
+                            const card = `${rank}${suit}`;
+                            const isUsed = localBoardCards.some((c, idx) => c === card && idx !== editingIndex);
+                            const isHeroCard = heroHand?.includes(card);
+                            const isSelected = editingIndex !== null && localBoardCards[editingIndex] === card;
+                            const canClick = editingIndex !== null && !isUsed && !isHeroCard;
+                            
+                            return (
+                              <td key={card} className="p-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (canClick) {
+                                      handleCardSelect(card);
+                                    }
+                                  }}
+                                  disabled={!canClick}
+                                  className={`w-full h-10 sm:h-12 flex items-center justify-center rounded-md text-xs sm:text-sm font-bold transition-all ${
+                                    isSelected
+                                      ? 'bg-blue-600 ring-2 ring-blue-400 text-white shadow-lg shadow-blue-500/50 scale-105'
+                                      : isUsed
+                                      ? 'bg-gray-900 text-gray-600 cursor-not-allowed line-through opacity-25'
+                                      : isHeroCard
+                                      ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-35'
+                                      : canClick
+                                      ? 'bg-gray-700 hover:bg-gray-600 hover:border-purple-500 active:bg-blue-500 cursor-pointer border border-gray-600'
+                                      : 'bg-gray-900 text-gray-600'
+                                  }`}
+                                >
+                                  <span className={canClick || isSelected ? getSuitColorOnly(suit) : ''}>
+                                    {rank}
+                                  </span>
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 
                 <p className="text-[10px] text-gray-500 mt-1.5">
                   {editingIndex !== null ? 'Click a card to select' : 'Click a card position above to start'}

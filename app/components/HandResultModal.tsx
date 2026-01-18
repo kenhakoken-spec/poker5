@@ -3,7 +3,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import { X, Trophy, XCircle } from 'lucide-react';
 import type { Position, HandResult, PlayerHandInfo, CompletionType, HandAction } from '@/types/poker';
-import { SimpleCardPicker } from './SimpleCardPicker';
+
+const suits = ['♠', '♥', '♦', '♣'];
+const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
 interface HandResultModalProps {
   isOpen: boolean;
@@ -190,8 +192,6 @@ export function HandResultModal({
     return contribution;
   };
 
-  // Submit result
-
   // Handle card selection (limit to 2 cards per player or hero)
   const handleCardSelect = (card: string) => {
     // Check if editing hero hand
@@ -348,12 +348,14 @@ export function HandResultModal({
     }
     
     // 相手プレーヤーのハンドが全て完成しているかチェック（マックされたか、ハンドが入力されている）
+    // ヘッズアップで負けた場合、ハンドは任意なので、playerStateが存在しなくてもOK
     let opponentHandsComplete = true;
     if (opponentsOnly.length > 0) {
       opponentHandsComplete = opponentsOnly.every(player => {
         const playerState = playerHands[player.position];
+        // playerStateが存在しない場合（未入力）も完成とみなす（任意入力のため）
         if (!playerState) {
-          return false; // playerStateが存在しない場合は未完成
+          return true; // playerStateが存在しない場合は任意なので完成とみなす
         }
         if (playerState.mucked) {
           return true; // マックされた場合は完成
@@ -365,7 +367,8 @@ export function HandResultModal({
           const card2 = hand[1];
           return !!(card1 && card2 && String(card1).trim() !== '' && String(card2).trim() !== '');
         }
-        return false;
+        // ハンドが未入力の場合も任意なので完成とみなす
+        return true;
       });
     }
     
@@ -377,7 +380,7 @@ export function HandResultModal({
   const handleSubmit = () => {
     // Winner must be selected (either hero won or opponent won)
     if (!heroFolded && heroWon === null) return;
-    if (!heroFolded && !heroWon && winnerPosition === null) return;
+    if (!heroFolded && !heroWon && !winnerPosition && opponentsOnly.length > 1) return;
 
     // Don't add hero if hero is already in opponentsOnly (shouldn't happen but defensive)
     const showdownHands: PlayerHandInfo[] = [];
@@ -438,22 +441,46 @@ export function HandResultModal({
   };
 
   // Reset and close
-  const handleClose = () => {
-    setStep('winner');
-    setHeroWon(null);
-    setWinnerPosition(null);
-    setPlayerHands({});
-    setHeroHandLocal(heroHand ? [...heroHand] as [string, string] : null);
-    setCurrentEditingPlayer(null);
-    setEditingCardIndex(0);
+  const handleClose = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    console.log('=== HANDLE CLOSE CALLED ===');
+    console.log('isOpen:', isOpen);
+    // 先にonCloseを呼んでモーダルを閉じる
+    console.log('Calling onClose()...');
     onClose();
+    // 状態をリセット（次のレンダリングで）
+    setTimeout(() => {
+      setStep('winner');
+      setHeroWon(null);
+      setWinnerPosition(null);
+      setPlayerHands({});
+      setHeroHandLocal(heroHand ? [...heroHand] as [string, string] : null);
+      setCurrentEditingPlayer(null);
+      setEditingCardIndex(0);
+    }, 0);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div 
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => {
+        // オーバーレイをクリックした場合のみ閉じる（モーダル内のクリックは無視）
+        if (e.target === e.currentTarget) {
+          e.stopPropagation();
+          e.preventDefault();
+          handleClose(e);
+        }
+      }}
+    >
+      <div 
+        className="bg-gray-900 rounded-2xl border border-gray-800 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
           <h2 className="text-lg font-bold text-white">
@@ -486,13 +513,7 @@ export function HandResultModal({
                   <button
                     onClick={() => {
                       // Need to select winner from opponents
-                      const opponents = opponentsOnly;
-                      if (opponents.length === 1) {
-                        handleWinnerSelect(false, opponents[0].position);
-                      } else {
-                        setHeroWon(false);
-                        setStep('hands');
-                      }
+                      handleWinnerSelect(false);
                     }}
                     className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl font-bold text-base transition-all hover:scale-105"
                   >
@@ -640,7 +661,7 @@ export function HandResultModal({
                 })}
               </div>
 
-              {/* Card picker for current editing player or hero */}
+              {/* Card picker for current editing player or hero - 横長グリッド形式 */}
               {currentEditingPlayer && (
                 <div className="mt-3 p-2 bg-gray-800 rounded-lg">
                   <p className="text-xs text-gray-400 mb-2">
@@ -649,20 +670,63 @@ export function HandResultModal({
                       {currentEditingPlayer === 'HERO' ? `${heroPosition} (You)` : currentEditingPlayer}
                     </span>:
                   </p>
-                  <div className="max-h-[200px] overflow-y-auto">
-                    <SimpleCardPicker
-                      onCardSelect={handleCardSelect}
-                      excludedCards={getExcludedCards()}
-                      selectedCards={
-                        currentEditingPlayer === 'HERO'
-                          ? (heroHandLocal || heroHand)
-                            ? [(heroHandLocal || heroHand)![editingCardIndex === 0 ? 1 : 0]]
-                            : []
-                          : playerHands[currentEditingPlayer]?.hand
-                            ? [playerHands[currentEditingPlayer].hand![editingCardIndex === 0 ? 1 : 0]]
-                            : []
-                      }
-                    />
+                  <div className="overflow-x-auto">
+                    <table className="border-collapse w-full">
+                      <thead>
+                        <tr>
+                          <th className="w-8 sm:w-10"></th>
+                          {ranks.map((rank) => (
+                            <th key={rank} className="px-1 py-2 text-[9px] sm:text-[10px] text-gray-400 font-semibold">
+                              {rank}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {suits.map((suit) => (
+                          <tr key={suit}>
+                            <td className={`px-1 py-1.5 text-center font-bold text-xs sm:text-sm ${getSuitColor(suit)}`}>
+                              {suit}
+                            </td>
+                            {ranks.map((rank) => {
+                              const card = `${rank}${suit}`;
+                              const isExcluded = getExcludedCards().includes(card);
+                              const currentSelected = currentEditingPlayer === 'HERO'
+                                ? (heroHandLocal || heroHand)
+                                  ? [(heroHandLocal || heroHand)![editingCardIndex === 0 ? 1 : 0]]
+                                  : []
+                                : playerHands[currentEditingPlayer]?.hand
+                                  ? [playerHands[currentEditingPlayer].hand![editingCardIndex === 0 ? 1 : 0]]
+                                  : [];
+                              const isSelected = currentSelected.includes(card);
+                              const canClick = !isExcluded;
+                              
+                              return (
+                                <td key={card} className="p-1">
+                                  <button
+                                    onClick={() => canClick && handleCardSelect(card)}
+                                    disabled={!canClick}
+                                    className={`w-full h-10 sm:h-12 rounded-md text-xs sm:text-sm font-bold transition-all ${
+                                      isSelected
+                                        ? 'bg-blue-600 ring-2 ring-blue-400 text-white shadow-lg shadow-blue-500/50 scale-105'
+                                        : isExcluded
+                                        ? 'bg-gray-900 text-gray-600 cursor-not-allowed line-through opacity-25'
+                                        : canClick
+                                        ? 'bg-gray-700 hover:bg-gray-600 hover:border-purple-500 active:bg-blue-500 cursor-pointer border border-gray-600'
+                                        : 'bg-gray-900 text-gray-600'
+                                    }`}
+                                  >
+                                    <span className={isSelected ? 'text-white' : getSuitColor(card)}>
+                                      {rank}
+                                    </span>
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
@@ -673,7 +737,11 @@ export function HandResultModal({
         {/* Footer */}
         <div className="px-4 py-2 border-t border-gray-800 flex justify-between">
           <button
-            onClick={handleClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              handleClose(e);
+            }}
             className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium transition-all"
           >
             Cancel

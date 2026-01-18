@@ -110,7 +110,8 @@ poker1/
 ├── lib/
 │   ├── PokerHandEngine.ts             # コアロジックエンジン
 │   ├── usePokerEngine.ts              # React統合フック
-│   └── handStorage.ts                 # ハンドストレージ
+│   ├── handStorage.ts                 # ハンドストレージ
+│   └── debugLogger.ts                 # デバッグログ機能
 ├── types/
 │   └── poker.ts                       # 型定義
 ├── tests/

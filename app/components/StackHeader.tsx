@@ -12,6 +12,11 @@ interface StackHeaderProps {
 }
 
 export function StackHeader({ stackSize, heroPosition, heroHand, onStackSizeChange, onHandChange }: StackHeaderProps) {
+  const handleQuickAdjust = (delta: number) => {
+    const newSize = Math.max(10, stackSize + delta);
+    onStackSizeChange(newSize);
+  };
+
   return (
     <div className="px-3 py-2 bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700">
       <div className="flex items-center justify-between gap-2">
@@ -27,6 +32,22 @@ export function StackHeader({ stackSize, heroPosition, heroHand, onStackSizeChan
               min="10"
             />
             <span className="text-[10px] text-gray-400">bb</span>
+            <div className="flex flex-col">
+              <button
+                onClick={() => handleQuickAdjust(10)}
+                className="w-4 h-3 flex items-center justify-center text-[10px] text-gray-300 hover:text-white transition-colors active:scale-95"
+                aria-label="Increase stack by 10bb"
+              >
+                ▲
+              </button>
+              <button
+                onClick={() => handleQuickAdjust(-10)}
+                className="w-4 h-3 flex items-center justify-center text-[10px] text-gray-300 hover:text-white transition-colors active:scale-95"
+                aria-label="Decrease stack by 10bb"
+              >
+                ▽
+              </button>
+            </div>
           </div>
           
           {heroPosition && (

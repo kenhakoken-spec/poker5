@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 
 const suits = ['♠', '♥', '♦', '♣'];
-const ranks = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
+const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
 function getSuitColor(card: string): string {
   if (card.includes('♦')) return 'text-blue-500';

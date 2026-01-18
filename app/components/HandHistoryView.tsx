@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Trash2, ChevronDown, ChevronUp, Calendar, User, DollarSign, List, Copy, Sparkles } from 'lucide-react';
-import { getAllHands, deleteHand } from '@/lib/handStorage';
+import { Trash2, ChevronDown, ChevronUp, Calendar, User, DollarSign, List, Copy, Sparkles, Star } from 'lucide-react';
+import { getAllHands, deleteHand, updateHand } from '@/lib/handStorage';
 import type { SavedHand } from '@/types/poker';
 
 // カードのスートに応じた色を返す
@@ -14,26 +14,15 @@ function getSuitColor(card: string): string {
   return 'text-white';
 }
 
-// 日時をフォーマット
+// 日時をフォーマット（何日の何時）
 function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - timestamp;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) {
-    return 'Just now';
-  } else if (diffMins < 60) {
-    return `${diffMins}m ago`;
-  } else if (diffHours < 24) {
-    return `${diffHours}h ago`;
-  } else if (diffDays < 7) {
-    return `${diffDays}d ago`;
-  } else {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
-  }
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 // 詳細な日時をフォーマット
@@ -57,6 +46,7 @@ export function HandHistoryView({ onClose }: HandHistoryViewProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<Record<string, 'idle' | 'copied'>>({});
+  const [editingMemos, setEditingMemos] = useState<Record<string, { locationMemo: string; otherMemo: string }>>({});
 
   // ハンドを読み込む
   const loadHands = () => {
@@ -96,6 +86,16 @@ export function HandHistoryView({ onClose }: HandHistoryViewProps) {
   };
 
   const isExpanded = (id: string) => expandedId === id;
+
+  // お気に入りのトグル
+  const toggleFavorite = (id: string) => {
+    const hand = hands.find(h => h.id === id);
+    if (hand) {
+      const newFavoriteStatus = !(hand.isFavorite || false);
+      updateHand(id, { isFavorite: newFavoriteStatus });
+      loadHands(); // リストを再読み込み
+    }
+  };
 
   // Copy and Gemini functionality
   const handleCopyAndGemini = async (hand: SavedHand) => {
@@ -228,10 +228,12 @@ ${hand.actions.map((action, idx) => `${idx + 1}. ${action}`).join('\n')}
                         </div>
                       )}
 
-                      {/* Villain Type */}
-                      <div className="px-1.5 py-0.5 bg-gray-800 rounded text-[10px] font-medium text-gray-400">
-                        {hand.villainType}
-                      </div>
+                      {/* Villain Type - Regは表示しない */}
+                      {hand.villainType !== 'Reg' && (
+                        <div className="px-1.5 py-0.5 bg-gray-800 rounded text-[10px] font-medium text-gray-400">
+                          {hand.villainType}
+                        </div>
+                      )}
                     </div>
 
                     {/* Pot & Actions Summary */}
@@ -256,10 +258,48 @@ ${hand.actions.map((action, idx) => `${idx + 1}. ${action}`).join('\n')}
                         </div>
                       )}
                     </div>
+
+                    {/* Memos in list view */}
+                    {(hand.locationMemo || hand.otherMemo) && (
+                      <div className="mt-1.5 space-y-0.5">
+                        {hand.locationMemo && (
+                          <div className="text-[10px] text-gray-500">
+                            <span className="text-gray-600">Location:</span> {hand.locationMemo}
+                          </div>
+                        )}
+                        {hand.otherMemo && (
+                          <div className="text-[10px] text-gray-500 line-clamp-1">
+                            <span className="text-gray-600">Notes:</span> {hand.otherMemo}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Right: Expand/Delete Controls */}
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(hand.id);
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-yellow-400 hover:bg-yellow-500/10 rounded transition-colors"
+                      title={hand.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                    >
+                      <Star className={`w-4 h-4 ${hand.isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleExpand(hand.id);
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                      title="Edit notes"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -343,6 +383,65 @@ ${hand.actions.map((action, idx) => `${idx + 1}. ${action}`).join('\n')}
                       ) : (
                         <div className="text-xs text-gray-500 italic">No actions recorded</div>
                       )}
+                    </div>
+                  </div>
+
+                  {/* Memos */}
+                  <div className="space-y-2">
+                    {/* Location Memo */}
+                    <div>
+                      <label className="text-xs font-semibold text-gray-400 mb-1 block">
+                        Location <span className="text-[10px] text-gray-500 font-normal">(e.g., casino name, table #)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editingMemos[hand.id]?.locationMemo ?? hand.locationMemo ?? ''}
+                        onChange={(e) => {
+                          const newMemos = { ...editingMemos };
+                          if (!newMemos[hand.id]) {
+                            newMemos[hand.id] = { locationMemo: hand.locationMemo ?? '', otherMemo: hand.otherMemo ?? '' };
+                          }
+                          newMemos[hand.id].locationMemo = e.target.value;
+                          setEditingMemos(newMemos);
+                        }}
+                        onBlur={() => {
+                          const memos = editingMemos[hand.id];
+                          if (memos) {
+                            updateHand(hand.id, { locationMemo: memos.locationMemo || undefined });
+                            loadHands();
+                          }
+                        }}
+                        placeholder="Location (e.g., casino name, table #)"
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50"
+                      />
+                    </div>
+
+                    {/* Other Memo */}
+                    <div>
+                      <label className="text-xs font-semibold text-gray-400 mb-1 block">
+                        Notes <span className="text-[10px] text-gray-500 font-normal">(e.g., player behavior, strategy notes)</span>
+                      </label>
+                      <textarea
+                        value={editingMemos[hand.id]?.otherMemo ?? hand.otherMemo ?? ''}
+                        onChange={(e) => {
+                          const newMemos = { ...editingMemos };
+                          if (!newMemos[hand.id]) {
+                            newMemos[hand.id] = { locationMemo: hand.locationMemo ?? '', otherMemo: hand.otherMemo ?? '' };
+                          }
+                          newMemos[hand.id].otherMemo = e.target.value;
+                          setEditingMemos(newMemos);
+                        }}
+                        onBlur={() => {
+                          const memos = editingMemos[hand.id];
+                          if (memos) {
+                            updateHand(hand.id, { otherMemo: memos.otherMemo || undefined });
+                            loadHands();
+                          }
+                        }}
+                        placeholder="Notes (e.g., player behavior, strategy notes)"
+                        rows={2}
+                        className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 resize-none"
+                      />
                     </div>
                   </div>
                 </div>

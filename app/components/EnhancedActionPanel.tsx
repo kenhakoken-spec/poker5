@@ -1,15 +1,18 @@
 'use client';
 
-import { useState } from 'react';
-import type { Position, ActionType } from '@/types/poker';
+import { useState, useEffect } from 'react';
+import type { Position, ActionType, OpponentType, OpponentStyle } from '@/types/poker';
 import type { EnhancedPokerState } from '@/lib/usePokerEngine';
 import { POSITION_ORDER } from '@/lib/PokerHandEngine';
+import { BetSizeSlider } from './BetSizeSlider';
+import { addDebugLog } from '@/lib/debugLogger';
 
 interface EnhancedActionPanelProps {
   state: EnhancedPokerState;
-  onAddAction: (position: Position, actionType: ActionType, betSize?: number) => void;
+  onAddAction: (position: Position, actionType: ActionType, betSize?: number, opponentType?: OpponentType, opponentStyle?: OpponentStyle) => void;
   onSetHeroPosition: (position: Position | null) => void;
-  onSetOpponentType: (type: 'Reg' | 'Fish' | 'Nit') => void;
+  onSetOpponentType: (type: OpponentType) => void;
+  onSetOpponentStyle: (style: OpponentStyle) => void;
 }
 
 /**
@@ -19,12 +22,14 @@ interface EnhancedActionPanelProps {
  * - ヒーローの強調表示
  * - テキサスホールデムのルールに準拠したアクション表示
  */
-export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onSetOpponentType }: EnhancedActionPanelProps) {
+export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onSetOpponentType, onSetOpponentStyle }: EnhancedActionPanelProps) {
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [showBetInput, setShowBetInput] = useState(false);
   const [betAmount, setBetAmount] = useState<string>('3');
+  const [sliderValue, setSliderValue] = useState<number>(3);
   const [isHeroForThisAction, setIsHeroForThisAction] = useState(false);
-  const [opponentTypeForThisAction, setOpponentTypeForThisAction] = useState<'Reg' | 'Fish' | 'Nit'>('Reg');
+  const [opponentTypeForThisAction, setOpponentTypeForThisAction] = useState<OpponentType>('Regular');
+  const [opponentStyleForThisAction, setOpponentStyleForThisAction] = useState<OpponentStyle>('unknown');
 
   const { currentActor, currentPhase, potSize, heroPosition, availablePositions, availableActions, players, currentBet, waitingForBoard } = state;
 
@@ -33,6 +38,20 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
     return state.actions.some(action => 
       action.position === position && action.phase === currentPhase
     );
+  };
+
+  // このフェーズでプレイヤーが行ったアクションを取得
+  const getActionForPosition = (position: Position): string | null => {
+    const action = state.actions.find(a => 
+      a.position === position && a.phase === currentPhase
+    );
+    if (!action) return null;
+    
+    let actionStr = action.action;
+    if (action.betSize !== undefined) {
+      actionStr += ` ${action.betSize.toFixed(1)}bb`;
+    }
+    return actionStr;
   };
 
   // プレイヤーがフォールド済みかチェック
@@ -130,7 +149,17 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
     setSelectedPosition(position);
     setShowBetInput(false);
     setIsHeroForThisAction(position === heroPosition);
-    setOpponentTypeForThisAction('Reg');
+    setOpponentTypeForThisAction('Regular');
+    setOpponentStyleForThisAction('unknown');
+    
+    // カスタムサイズの初期値を設定
+    if (currentPhase === 'Preflop') {
+      setSliderValue(currentBet === 1.0 ? 3 : currentBet * 2);
+      setBetAmount((currentBet === 1.0 ? 3 : currentBet * 2).toFixed(1));
+    } else {
+      setSliderValue(currentBet === 0 ? potSize * 0.5 : currentBet * 2);
+      setBetAmount((currentBet === 0 ? potSize * 0.5 : currentBet * 2).toFixed(1));
+    }
   };
 
   // アクション実行前の処理
@@ -142,19 +171,37 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
       onSetHeroPosition(selectedPosition);
     }
     
-    // 相手タイプを設定
+    // 相手タイプとスタイルを直接アクションに渡す（状態更新は非同期のため）
+    const typeForAction = !isHeroForThisAction ? opponentTypeForThisAction : undefined;
+    const styleForAction = !isHeroForThisAction ? opponentStyleForThisAction : undefined;
+    
+    // DEBUG: EnhancedActionPanel
+    addDebugLog('[EnhancedActionPanel] handleActionWithMetadata', {
+      position: selectedPosition,
+      actionType,
+      betSize,
+      isHero: isHeroForThisAction,
+      typeForAction,
+      styleForAction,
+      opponentTypeForThisAction,
+      opponentStyleForThisAction
+    });
+    
+    // 状態も更新（次のアクション用）
     if (!isHeroForThisAction) {
       onSetOpponentType(opponentTypeForThisAction);
+      onSetOpponentStyle(opponentStyleForThisAction);
     }
     
-    // アクションを記録
-    onAddAction(selectedPosition, actionType, betSize);
+    // アクションを記録（TypeとStyleを直接渡す）
+    onAddAction(selectedPosition, actionType, betSize, typeForAction, styleForAction);
     
     // リセット（次のアクションのために状態をクリア）
     setSelectedPosition(null);
     setShowBetInput(false);
     setIsHeroForThisAction(false);
-    setOpponentTypeForThisAction('Reg');
+    setOpponentTypeForThisAction('Regular');
+    setOpponentStyleForThisAction('unknown');
   };
 
   // アクション実行
@@ -301,6 +348,8 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                 const isCurrentActor = position === currentActor;
                 const nextActor = getNextActor();
                 const isNextActor = position === nextActor;
+                const isHeadsUp = getActivePlayerCount() === 2;
+                const actionText = getActionForPosition(position);
                 
                 return (
                   <button
@@ -314,6 +363,8 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                         : isAvailable 
                         ? isHero
                           ? 'bg-gradient-to-br from-yellow-600 to-yellow-700 text-white hover:from-yellow-500 hover:to-yellow-600 hover:shadow-xl active:scale-95'
+                          : acted && isHeadsUp && currentPhase !== 'Preflop'
+                          ? 'bg-white text-gray-900 hover:bg-gray-100 hover:shadow-xl active:scale-95'
                           : acted
                           ? 'bg-gradient-to-br from-green-700 to-green-800 text-white hover:from-green-600 hover:to-green-700 hover:shadow-xl active:scale-95'
                           : isCurrentActor && currentPhase !== 'Preflop'
@@ -329,10 +380,13 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                   >
                     {position}
                     {isHero && <span className="block text-[9px] mt-0.5 opacity-80">Hero</span>}
+                    {acted && isHeadsUp && currentPhase !== 'Preflop' && actionText && (
+                      <span className="block text-[8px] text-gray-700 font-semibold mt-0.5">{actionText}</span>
+                    )}
                     {isNextActor && currentPhase !== 'Preflop' && !acted && !folded && (
                       <span className="block text-[8px] text-blue-300 mt-0.5 font-bold">→ Next</span>
                     )}
-                    {acted && !folded && (
+                    {acted && !folded && !(isHeadsUp && currentPhase !== 'Preflop') && (
                       <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-gray-900"></span>
                     )}
                     {folded && currentPhase !== 'Preflop' && (
@@ -355,6 +409,8 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                 const isCurrentActor = position === currentActor;
                 const nextActor = getNextActor();
                 const isNextActor = position === nextActor;
+                const isHeadsUp = getActivePlayerCount() === 2;
+                const actionText = getActionForPosition(position);
                 
                 return (
                   <button
@@ -368,6 +424,8 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                         : isAvailable 
                         ? isHero
                           ? 'bg-gradient-to-br from-yellow-600 to-yellow-700 text-white hover:from-yellow-500 hover:to-yellow-600 hover:shadow-xl active:scale-95'
+                          : acted && isHeadsUp && currentPhase !== 'Preflop'
+                          ? 'bg-white text-gray-900 hover:bg-gray-100 hover:shadow-xl active:scale-95'
                           : acted
                           ? 'bg-gradient-to-br from-green-700 to-green-800 text-white hover:from-green-600 hover:to-green-700 hover:shadow-xl active:scale-95'
                           : isCurrentActor && currentPhase !== 'Preflop'
@@ -383,10 +441,13 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                   >
                     {position}
                     {isHero && <span className="block text-[9px] mt-0.5 opacity-80">Hero</span>}
+                    {acted && isHeadsUp && currentPhase !== 'Preflop' && actionText && (
+                      <span className="block text-[8px] text-gray-700 font-semibold mt-0.5">{actionText}</span>
+                    )}
                     {isNextActor && currentPhase !== 'Preflop' && !acted && !folded && (
                       <span className="block text-[8px] text-blue-300 mt-0.5 font-bold">→ Next</span>
                     )}
-                    {acted && !folded && (
+                    {acted && !folded && !(isHeadsUp && currentPhase !== 'Preflop') && (
                       <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-gray-900"></span>
                     )}
                     {folded && currentPhase !== 'Preflop' && (
@@ -400,11 +461,11 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
         </div>
       )}
 
-      {/* アクション選択 */}
+      {/* アクション選択 - ボトムシート形式 */}
       {selectedPosition && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2">
-          <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-xl w-full max-w-[400px] max-h-[85vh] flex flex-col shadow-2xl border border-gray-700">
-            <div className="px-3 py-2 bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 flex items-center justify-between rounded-t-xl">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end">
+          <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-t-2xl w-full max-h-[70vh] flex flex-col shadow-2xl border-t border-gray-700 animate-slide-up">
+            <div className="sticky top-0 bg-gradient-to-b from-gray-800 to-gray-900 px-4 py-3 border-b border-gray-700 flex items-center justify-between z-10 rounded-t-2xl">
               <h3 className="text-xs font-semibold text-gray-300">
                 {selectedPosition} Action
                 {canCheck && <span className="ml-2 text-green-400 text-[10px]">(can check)</span>}
@@ -418,10 +479,10 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-            {/* ヒーローチェックボックス & 相手タイプ */}
-            <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg border border-gray-700">
-              <label className="flex items-center gap-1.5 cursor-pointer">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-6">
+            {/* ヒーローチェックボックス & 相手タイプ & スタイル */}
+            <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg border border-gray-700 gap-2">
+              <label className="flex items-center gap-1.5 cursor-pointer flex-shrink-0">
                 <input
                   type="checkbox"
                   checked={isHeroForThisAction}
@@ -431,19 +492,36 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                 <span className="text-xs text-gray-300">you?</span>
               </label>
               
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-1">
+                <span className="text-[10px] text-gray-400">Style:</span>
+                <select
+                  value={opponentStyleForThisAction}
+                  onChange={(e) => setOpponentStyleForThisAction(e.target.value as OpponentStyle)}
+                  disabled={isHeroForThisAction}
+                  className={`flex-1 px-1.5 py-0.5 bg-gray-700 border border-gray-600 rounded text-[10px] text-white focus:outline-none focus:border-blue-500 transition-all ${
+                    isHeroForThisAction ? 'opacity-40 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <option value="unknown">unknown</option>
+                  <option value="Tight-Aggressive">Tight-Aggressive</option>
+                  <option value="Loose-Aggressive">Loose-Aggressive</option>
+                  <option value="Tight-Passive">Tight-Passive</option>
+                  <option value="Loose-Passive">Loose-Passive</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 <span className="text-[10px] text-gray-400">Type:</span>
                 <select
                   value={opponentTypeForThisAction}
-                  onChange={(e) => setOpponentTypeForThisAction(e.target.value as 'Reg' | 'Fish' | 'Nit')}
+                  onChange={(e) => setOpponentTypeForThisAction(e.target.value as OpponentType)}
                   disabled={isHeroForThisAction}
                   className={`px-1.5 py-0.5 bg-gray-700 border border-gray-600 rounded text-[10px] text-white focus:outline-none focus:border-blue-500 transition-all ${
                     isHeroForThisAction ? 'opacity-40 cursor-not-allowed' : ''
                   }`}
                 >
-                  <option value="Reg">Reg</option>
+                  <option value="Regular">Regular</option>
                   <option value="Fish">Fish</option>
-                  <option value="Nit">Nit</option>
                 </select>
               </div>
             </div>
@@ -536,6 +614,15 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                   className="w-full px-3 py-2.5 rounded-lg font-semibold text-xs bg-gradient-to-br from-purple-600 to-purple-700 text-white hover:from-purple-500 hover:to-purple-600 shadow-md hover:shadow-lg transition-all active:scale-95"
                 >
                   All-in
+                  {(() => {
+                    const player = players.find(p => p.position === selectedPosition);
+                    const remainingStack = player ? Math.max(0, state.stackSize - player.contributed) : state.stackSize;
+                    return (
+                      <span className="block text-[10px] font-normal text-purple-200">
+                        ({remainingStack.toFixed(1)}bb)
+                      </span>
+                    );
+                  })()}
                 </button>
               </div>
             )}
@@ -544,37 +631,95 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
             {currentPhase !== 'Preflop' && (canBet || canRaise) && (
               <div className="space-y-1.5">
                 <p className="text-[10px] text-gray-400">Preset {state.raiseLabel}</p>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[33, 50, 75, 100].map((pct) => (
-                    <button
-                      key={pct}
-                      onClick={() => handlePresetBet(pct)}
-                      className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-yellow-600 to-yellow-700 text-white hover:from-yellow-500 hover:to-yellow-600 shadow-md hover:shadow-lg transition-all active:scale-95"
-                    >
-                      {pct}%
-                      <span className="block text-[9px] font-normal">
-                        {((potSize * pct) / 100).toFixed(1)}bb
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => handlePresetBet(150)}
-                    className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-orange-600 to-orange-700 text-white hover:from-orange-500 hover:to-orange-600 shadow-md hover:shadow-lg transition-all active:scale-95"
-                  >
-                    150%
-                    <span className="block text-[9px] font-normal">
-                      {((potSize * 150) / 100).toFixed(1)}bb
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => handleAction(canBet ? 'Bet' : 'Raise', 999)}
-                    className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-purple-600 to-purple-700 text-white hover:from-purple-500 hover:to-purple-600 shadow-md hover:shadow-lg transition-all active:scale-95"
-                  >
-                    All-in
-                  </button>
-                </div>
+                {(() => {
+                  const isHeadsUp = getActivePlayerCount() === 2;
+                  const isRaise = currentBet > 0;
+                  
+                  // ヘッズアップかつリレイズの場合は倍率表示
+                  if (isHeadsUp && isRaise) {
+                    const player = players.find(p => p.position === selectedPosition);
+                    const remainingStack = player ? state.stackSize - player.contributed : state.stackSize;
+                    const allInRemaining = Math.max(0, remainingStack);
+                    
+                    return (
+                      <>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[2, 3].map((multiplier) => {
+                            const raiseAmount = currentBet * multiplier;
+                            const totalAmount = currentBet + raiseAmount;
+                            return (
+                              <button
+                                key={multiplier}
+                                onClick={() => handlePresetRaise(multiplier)}
+                                className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-yellow-600 to-yellow-700 text-white hover:from-yellow-500 hover:to-yellow-600 shadow-md hover:shadow-lg transition-all active:scale-95"
+                              >
+                                {multiplier}x
+                                <span className="block text-[9px] font-normal">
+                                  {totalAmount.toFixed(1)}bb
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          onClick={() => handleAction('Raise', 999)}
+                          className="w-full px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-purple-600 to-purple-700 text-white hover:from-purple-500 hover:to-purple-600 shadow-md hover:shadow-lg transition-all active:scale-95"
+                        >
+                          All-in
+                          <span className="block text-[9px] font-normal text-purple-200">
+                            ({allInRemaining.toFixed(1)}bb)
+                          </span>
+                        </button>
+                      </>
+                    );
+                  }
+                  
+                  // 通常のポット%表示
+                  return (
+                    <>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[33, 50, 75, 100].map((pct) => (
+                          <button
+                            key={pct}
+                            onClick={() => handlePresetBet(pct)}
+                            className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-yellow-600 to-yellow-700 text-white hover:from-yellow-500 hover:to-yellow-600 shadow-md hover:shadow-lg transition-all active:scale-95"
+                          >
+                            {pct}%
+                            <span className="block text-[9px] font-normal">
+                              {((potSize * pct) / 100).toFixed(1)}bb
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          onClick={() => handlePresetBet(150)}
+                          className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-orange-600 to-orange-700 text-white hover:from-orange-500 hover:to-orange-600 shadow-md hover:shadow-lg transition-all active:scale-95"
+                        >
+                          150%
+                          <span className="block text-[9px] font-normal">
+                            {((potSize * 150) / 100).toFixed(1)}bb
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => handleAction(canBet ? 'Bet' : 'Raise', 999)}
+                          className="px-1.5 py-2.5 rounded-lg font-semibold text-[10px] bg-gradient-to-br from-purple-600 to-purple-700 text-white hover:from-purple-500 hover:to-purple-600 shadow-md hover:shadow-lg transition-all active:scale-95"
+                        >
+                          All-in
+                          {(() => {
+                            const player = players.find(p => p.position === selectedPosition);
+                            const remainingStack = player ? Math.max(0, state.stackSize - player.contributed) : state.stackSize;
+                            return (
+                              <span className="block text-[9px] font-normal text-purple-200">
+                                ({remainingStack.toFixed(1)}bb)
+                              </span>
+                            );
+                          })()}
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
@@ -589,16 +734,44 @@ export function EnhancedActionPanel({ state, onAddAction, onSetHeroPosition, onS
                 </button>
                 
                 {showBetInput && (
-                  <div className="space-y-1.5">
-                    <input
-                      type="number"
-                      value={betAmount}
-                      onChange={(e) => setBetAmount(e.target.value)}
-                      placeholder="Bet size (BB)"
-                      step="0.5"
-                      min="0"
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50"
-                    />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={betAmount}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setBetAmount(val);
+                          const numVal = parseFloat(val);
+                          if (!isNaN(numVal) && numVal >= 0) {
+                            setSliderValue(Math.min(numVal, sliderValue));
+                          }
+                        }}
+                        placeholder="Bet size (BB)"
+                        step="0.5"
+                        min="0"
+                        className="w-20 px-2 py-1.5 bg-gray-800 border border-gray-600 rounded text-white text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50"
+                      />
+                      <span className="text-xs text-gray-400">bb</span>
+                      <div className="flex-1">
+                        <BetSizeSlider
+                          min={0.5}
+                          max={(() => {
+                            const player = players.find(p => p.position === selectedPosition);
+                            const remainingStack = player ? Math.max(0, state.stackSize - player.contributed) : state.stackSize;
+                            return Math.max(0.5, remainingStack);
+                          })()}
+                          step={0.5}
+                          value={sliderValue}
+                          onChange={(val) => {
+                            setSliderValue(val);
+                            setBetAmount(val.toFixed(1));
+                          }}
+                          label="Custom Size"
+                          unit="bb"
+                        />
+                      </div>
+                    </div>
                     <button
                       onClick={handleBetRaise}
                       className="w-full px-3 py-2 rounded-lg font-semibold text-xs bg-gradient-to-br from-green-600 to-green-700 text-white hover:from-green-500 hover:to-green-600 shadow-md hover:shadow-lg transition-all active:scale-95"

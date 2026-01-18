@@ -1,4 +1,5 @@
-import type { Position, ActionType, Phase, HandAction, PokerHand, HandResult, PlayerHandInfo, CompletionType } from '@/types/poker';
+import type { Position, ActionType, Phase, HandAction, PokerHand, HandResult, CompletionType, OpponentType, OpponentStyle } from '@/types/poker';
+import { addDebugLog } from './debugLogger';
 
 /**
  * ポーカーロジックエンジン（6-max専用）
@@ -169,11 +170,6 @@ export class PokerHandEngine {
     const player = this.players[this.getPlayerIndex(position)];
     if (player.folded) return [];
     
-    // オールイン済み（スタック0）のプレイヤーはアクション不可
-    if (player.stack < 0.01) {
-      return [];
-    }
-    
     const actions: ActionType[] = [];
     
     if (this.canCheck(position)) {
@@ -202,8 +198,10 @@ export class PokerHandEngine {
    * @param position アクションするポジション
    * @param actionType アクションタイプ
    * @param betSize ベット/レイズのサイズ（BB単位）
+   * @param opponentType オポーネントタイプ（オプション）
+   * @param opponentStyle オポーネントスタイル（オプション）
    */
-  addPreflopAction(position: Position, actionType: ActionType, betSize?: number): void {
+  addPreflopAction(position: Position, actionType: ActionType, betSize?: number, opponentType?: OpponentType, opponentStyle?: OpponentStyle): void {
     if (this.street.phase !== 'Preflop') {
       throw new Error('This method is only for preflop actions');
     }
@@ -216,13 +214,9 @@ export class PokerHandEngine {
       this.autoFoldBetween(currentIndex, actorIndex);
     }
 
-    // アクションを実行するプレイヤーにcurrentActorIndexを設定
-    // （autoFoldBetweenでcurrentActorIndexが変更されている可能性があるため）
-    this.currentActorIndex = actorIndex;
+    // 実際のアクションを記録
+    this.recordAction(position, actionType, betSize, opponentType, opponentStyle);
 
-    // 実際のアクションを記録（recordAction内でhasActedThisStreetが設定される）
-    this.recordAction(position, actionType, betSize);
-    
     // 次の手番を決定
     this.advanceToNextActor();
   }
@@ -234,39 +228,24 @@ export class PokerHandEngine {
    */
   private autoFoldBetween(startIndex: number, endIndex: number): void {
     let idx = startIndex;
-    const processedIndices = new Set<number>();
-    
-    // プリフロップでは、startIndexからendIndexまで時計回りに進む
     while (idx !== endIndex) {
-      // 無限ループ防止
-      if (processedIndices.has(idx)) {
-        break;
-      }
-      processedIndices.add(idx);
-      
-      // 範囲チェック
-      if (idx < 0 || idx >= this.players.length) {
-        break;
-      }
-      
       if (!this.players[idx].folded) {
-        // プリフロップのスキップ機能では、チェック可能でもフォールドを許可
-        this.recordAction(POSITION_ORDER[idx], 'Fold', undefined, true);
+        this.recordAction(POSITION_ORDER[idx], 'Fold', undefined, undefined, undefined);
       }
-      
-      // 次のアクティブプレイヤーに進む（時計回り）
-      const nextIdx = this.getNextActivePlayerIndex(idx);
-      if (nextIdx === -1 || nextIdx === idx) {
-        break;
-      }
-      idx = nextIdx;
+      idx = this.getNextActivePlayerIndex(idx);
+      if (idx === -1) break;
     }
   }
 
   /**
    * ポストフロップのアクション
+   * @param position アクションするポジション
+   * @param actionType アクションタイプ
+   * @param betSize ベット/レイズのサイズ（BB単位）
+   * @param opponentType オポーネントタイプ（オプション）
+   * @param opponentStyle オポーネントスタイル（オプション）
    */
-  addPostflopAction(position: Position, actionType: ActionType, betSize?: number): void {
+  addPostflopAction(position: Position, actionType: ActionType, betSize?: number, opponentType?: OpponentType, opponentStyle?: OpponentStyle): void {
     if (this.street.phase === 'Preflop') {
       throw new Error('Use addPreflopAction for preflop');
     }
@@ -276,28 +255,33 @@ export class PokerHandEngine {
       throw new Error(`It's not ${position}'s turn. Current actor: ${this.getCurrentActor()}`);
     }
 
-    this.recordAction(position, actionType, betSize);
+    this.recordAction(position, actionType, betSize, opponentType, opponentStyle);
     this.advanceToNextActor();
   }
 
   /**
    * アクションを記録
+   * @param position アクションするポジション
+   * @param actionType アクションタイプ
+   * @param betSize ベット/レイズのサイズ（BB単位）
+   * @param opponentType オポーネントタイプ（オプション）
+   * @param opponentStyle オポーネントスタイル（オプション）
    */
-  private recordAction(position: Position, actionType: ActionType, betSize?: number, skipValidation: boolean = false): void {
+  private recordAction(position: Position, actionType: ActionType, betSize?: number, opponentType?: OpponentType, opponentStyle?: OpponentStyle): void {
+    // DEBUG: PokerHandEngine recordAction
+    addDebugLog('[PokerHandEngine] recordAction called', {
+      position,
+      actionType,
+      betSize,
+      opponentType,
+      opponentStyle
+    });
+    
     const playerIndex = this.getPlayerIndex(position);
     const player = this.players[playerIndex];
 
     if (player.folded) {
       throw new Error(`${position} has already folded`);
-    }
-
-    // チェック可能な場合はフォールドできない（テキサスホールデムのルール）
-    // ただし、プリフロップのスキップ機能では例外を許可
-    if (!skipValidation && actionType === 'Fold' && this.canCheck(position)) {
-      // ポストフロップでは常に禁止、プリフロップでは自動フォールド時のみ許可
-      if (this.street.phase !== 'Preflop') {
-        throw new Error('Cannot fold when you can check');
-      }
     }
 
     let actualBetSize = betSize;
@@ -320,11 +304,7 @@ export class PokerHandEngine {
         if (callAmount <= 0) {
           throw new Error('Nothing to call');
         }
-        // スタックを超える場合は自動的にオールインになる
         const actualCall = Math.min(callAmount, player.stack);
-        if (actualCall <= 0) {
-          throw new Error('Cannot call with zero stack');
-        }
         amountToAdd = actualCall;
         player.stack -= actualCall;
         player.contributed += actualCall;
@@ -340,11 +320,7 @@ export class PokerHandEngine {
         if (!betSize || betSize <= 0) {
           throw new Error('Bet size must be positive');
         }
-        // スタックを超える場合は自動的にオールインになる
         actualBetSize = Math.min(betSize, player.stack);
-        if (actualBetSize <= 0) {
-          throw new Error('Cannot bet with zero stack (all-in)');
-        }
         amountToAdd = actualBetSize;
         player.stack -= actualBetSize;
         player.contributed += actualBetSize;
@@ -359,26 +335,16 @@ export class PokerHandEngine {
           throw new Error('Raise size must be positive');
         }
         // レイズの場合、betSizeはトータル額（コール分を含む）
-        // スタックを超える場合は自動的にオールインになる
-        const maxAvailable = player.stack + player.contributed;
-        const raiseTotal = Math.min(betSize, maxAvailable);
+        const raiseTotal = Math.min(betSize, player.stack + player.contributed);
         const additionalAmount = raiseTotal - player.contributed;
-        
-        if (additionalAmount <= 0) {
-          throw new Error('Raise amount must be greater than current contribution');
-        }
-        
-        // 追加額がスタックを超える場合、オールインに調整
-        const actualAdditional = Math.min(additionalAmount, player.stack);
-        
-        amountToAdd = actualAdditional;
-        player.stack -= actualAdditional;
-        player.contributed = player.contributed + actualAdditional;
-        player.totalContributed += actualAdditional;
+        amountToAdd = additionalAmount;
+        player.stack -= additionalAmount;
+        player.contributed = raiseTotal;
+        player.totalContributed += additionalAmount;
         this.street.currentBet = player.contributed;
         this.street.lastAggressorIndex = playerIndex;
         this.street.raiseCount += 1;
-        actualBetSize = actualAdditional;
+        actualBetSize = additionalAmount;
         break;
       }
     }
@@ -398,10 +364,32 @@ export class PokerHandEngine {
       potSize: this.street.pot,
       timestamp: Date.now(),
       phase: this.street.phase,
+      opponentType,
+      opponentStyle,
     };
+
+    // DEBUG: PokerHandEngine recordAction - action created
+    addDebugLog('[PokerHandEngine] recordAction - action created', {
+      actionId: action.id,
+      position: action.position,
+      action: action.action,
+      betSize: action.betSize,
+      opponentType: action.opponentType,
+      opponentStyle: action.opponentStyle,
+      actionObject: action
+    });
 
     this.street.actionsThisStreet.push(action);
     this.actions.push(action);
+    
+    // DEBUG: Verify action was stored
+    const lastStored = this.actions[this.actions.length - 1];
+    addDebugLog('[PokerHandEngine] recordAction - last stored action', {
+      actionId: lastStored.id,
+      opponentType: lastStored.opponentType,
+      opponentStyle: lastStored.opponentStyle,
+      allActionsLength: this.actions.length
+    });
   }
 
   /**
@@ -438,8 +426,9 @@ export class PokerHandEngine {
       this.waitingForBoard = true;
       this.prepareNextStreet();
     } else {
-      // nextIndexが-1の場合、アクション可能なプレイヤーがいないのでハンド終了
       if (nextIndex === -1) {
+        // アクション可能なプレイヤーがいないが、ストリートが完了していない場合
+        // これは通常起こらないが、念のためハンド終了とする
         this.currentActorIndex = -1;
         return;
       }
@@ -487,11 +476,6 @@ export class PokerHandEngine {
 
     // プリフロップの特殊ケース：BBオプション
     if (this.street.phase === 'Preflop') {
-      // アクション可能なプレイヤーがいない場合（全員オールイン）は完了
-      if (playersWhoCanAct.length === 0) {
-        return true;
-      }
-      
       const bbIndex = this.getPlayerIndex('BB');
       const bbPlayer = this.players[bbIndex];
       
@@ -499,54 +483,29 @@ export class PokerHandEngine {
       // （全員リンプ/コールした場合）
       if (!bbPlayer.folded && this.street.raiseCount === 0) {
         // BBがまだアクションしていなければ、BBのオプションがある
-        if (!bbPlayer.hasActedThisStreet && bbPlayer.stack > 0.01) {
+        if (!bbPlayer.hasActedThisStreet) {
           return false;
         }
-        // BBがアクション済み、またはBBがオールイン済みなら終了
-        return true;
       }
       
-      // レイズがあった場合
-      if (this.street.lastAggressorIndex !== null) {
-        const lastAggressor = this.players[this.street.lastAggressorIndex];
-        // アクション可能なプレイヤーが全員アクション済みで、全員マッチしている場合
-        if (allActablePlayersActed && allMatched) {
-          // 最後のアグレッサーがオールイン済みの場合は完了
-          if (lastAggressor.stack < 0.01) {
-            return true;
-          }
-          // 次のアクターが最後のアグレッサーの場合も完了
-          if (nextIndex === this.street.lastAggressorIndex) {
-            return true;
-          }
-        }
+      // レイズがあった場合、最後のアグレッサーに手番が戻ってきたら終了
+      if (this.street.lastAggressorIndex !== null && nextIndex === this.street.lastAggressorIndex) {
+        return true;
       }
     } else {
-      // ポストフロップ
-      // アクション可能なプレイヤーが全員アクション済みで、全員マッチしている場合
-      if (allActablePlayersActed && allMatched) {
-        // ベットがない場合（全員チェック）：終了
-        if (this.street.currentBet === 0 && this.street.lastAggressorIndex === null) {
-          return true;
-        }
-        
-        // ベットがある場合
-        if (this.street.lastAggressorIndex !== null) {
-          const lastAggressor = this.players[this.street.lastAggressorIndex];
-          // 最後のアグレッサーがオールイン済みの場合は完了
-          if (lastAggressor.stack < 0.01) {
-            return true;
-          }
-          // 次のアクターが最後のアグレッサーの場合も完了
-          if (nextIndex === this.street.lastAggressorIndex) {
-            return true;
-          }
-        }
+      // ポストフロップ：最後のアグレッサーに手番が戻ってきたら終了
+      if (this.street.lastAggressorIndex !== null && nextIndex !== -1 && nextIndex === this.street.lastAggressorIndex) {
+        return true;
       }
     }
 
-    // 上記の条件に当てはまらない場合は終了しない
-    return false;
+    // nextIndexが-1の場合（全員オールイン）、ストリートは完了
+    if (nextIndex === -1) {
+      return true;
+    }
+
+    // 全員アクション済みで全員同額（チェックチェック含む）
+    return true;
   }
 
   /**
@@ -562,14 +521,8 @@ export class PokerHandEngine {
     // 次のフェーズを決定
     const phaseOrder: Phase[] = ['Preflop', 'Flop', 'Turn', 'River'];
     const currentPhaseIndex = phaseOrder.indexOf(this.street.phase);
-    
-    // Riverの場合は次のフェーズはない（ハンド完了）
-    if (currentPhaseIndex >= phaseOrder.length - 1) {
-      this.currentActorIndex = -1;
-      return; // ハンド完了
-    }
-    
     const nextPhase = phaseOrder[currentPhaseIndex + 1];
+    
     this.street.phase = nextPhase;
     this.street.streetStartingPot = this.street.pot;
     this.street.currentBet = 0;
@@ -585,25 +538,6 @@ export class PokerHandEngine {
    * ポストフロップの最初のアクターを設定
    */
   private setPostflopFirstActor(): void {
-    // アクション可能なプレイヤー（スタック0でない）を取得
-    const playersWhoCanAct = this.players.filter(p => !p.folded && p.stack > 0.01);
-    
-    // アクション可能なプレイヤーがいない場合（全員オールイン）
-    if (playersWhoCanAct.length === 0) {
-      this.currentActorIndex = -1;
-      // リバーでも、まだボードカードが選ばれていない場合は待つ
-      // River完了後はハンド完了になる（advanceToNextActorで処理される）
-      if (this.street.phase !== 'River') {
-        this.waitingForBoard = true;
-      } else {
-        // Riverの場合、全員オールインならボードカードを選ぶ必要がある
-        // しかし、River完了後はハンド完了になる
-        // ここでは、まだボードカードが選ばれていない場合は待つ
-        this.waitingForBoard = true;
-      }
-      return;
-    }
-    
     // ディーラーの左（SB）から開始
     // SBが生存していて、スタックがある場合はSB
     // そうでなければ次のアクティブプレイヤー（スタック0はスキップ）
@@ -654,17 +588,28 @@ export class PokerHandEngine {
       return;
     }
     
-    // 全員オールインの場合、次のストリートへ進む必要がある
+    this.waitingForBoard = false;
+    
+    // 全員オールインの場合でも、次のストリートのボードカードを入力する必要がある
+    // そのため、次のストリートへ進むだけにする（prepareNextStreetを呼び、waitingForBoardをtrueにする）
     if (playersWhoCanAct.length === 0) {
       // 全員オールインの場合、次のストリートへ進む
-      // prepareNextStreet()を呼んで、phaseを次のストリート（Turn -> River）に進める
-      this.prepareNextStreet();
-      // prepareNextStreet()内でsetPostflopFirstActor()が呼ばれ、waitingForBoard = trueに設定される
-      return;
+      // 現在のフェーズを確認してから進む
+      const currentPhase = this.street.phase;
+      
+      if (currentPhase === 'Turn') {
+        // Turn完了後、Riverへ
+        this.prepareNextStreet();
+        // Riverのボードカード入力待ち
+        this.waitingForBoard = true;
+        return;
+      } else if (currentPhase === 'Flop') {
+        // Flop完了後、Turnへ（Turnのボードカード入力待ち）
+        this.prepareNextStreet();
+        this.waitingForBoard = true;
+        return;
+      }
     }
-    
-    // 全員オールインでない場合、waitingForBoardをfalseにしてアクションを開始
-    this.waitingForBoard = false;
   }
 
   /**
@@ -725,12 +670,37 @@ export class PokerHandEngine {
     currentBet: number;
     waitingForBoard: boolean;
   } {
+    // DEBUG: Log this.actions before returning
+    addDebugLog('[PokerHandEngine] getState - this.actions before return', {
+      actionsCount: this.actions.length,
+      actions: this.actions.map(a => ({
+        position: a.position,
+        action: a.action,
+        opponentType: a.opponentType,
+        opponentStyle: a.opponentStyle,
+        hasOpponentType: !!a.opponentType,
+        hasOpponentStyle: !!a.opponentStyle
+      }))
+    });
+    
+    const actionsCopy = [...this.actions];
+    // DEBUG: Verify copy has same values
+    if (actionsCopy.length > 0) {
+      const lastAction = actionsCopy[actionsCopy.length - 1];
+      addDebugLog('[PokerHandEngine] getState - actions copy verification', {
+        lastActionPosition: lastAction.position,
+        lastActionOpponentType: lastAction.opponentType,
+        lastActionOpponentStyle: lastAction.opponentStyle,
+        isSameReference: lastAction === this.actions[this.actions.length - 1]
+      });
+    }
+    
     return {
       players: this.players.map(p => ({ ...p })),
       pot: this.street.pot,
       phase: this.street.phase,
       currentActor: this.getCurrentActor(),
-      actions: [...this.actions],
+      actions: actionsCopy,
       isComplete: this.isHandComplete(),
       currentBet: this.street.currentBet,
       waitingForBoard: this.waitingForBoard,
@@ -800,6 +770,19 @@ export class PokerHandEngine {
   }
 
   /**
+   * PokerHand形式でエクスポート（既存のUIとの互換性）
+   */
+  exportToPokerHand(): Partial<PokerHand> {
+    return {
+      actions: this.actions,
+      potSize: this.street.pot,
+      currentPhase: this.street.phase,
+      stackSize: this.stackSize,
+      heroPosition: this.heroPosition,
+    };
+  }
+
+  /**
    * ハンド結果を設定
    */
   setHandResult(result: HandResult): void {
@@ -825,45 +808,23 @@ export class PokerHandEngine {
   }
 
   /**
-   * アクティブなプレイヤー（フォールドしていない）の情報を取得
-   */
-  getActivePlayers(): PlayerState[] {
-    return this.players.filter(p => !p.folded);
-  }
-
-  /**
-   * 完了タイプを推測
+   * 完了タイプを取得
    */
   getCompletionType(): CompletionType {
-    const activePlayers = this.getActivePlayers();
+    const activePlayers = this.players.filter(p => !p.folded);
     
     // 1人だけ残った場合はフォールド完了
     if (activePlayers.length === 1) {
       return 'fold';
     }
     
-    // 複数人残っている場合
-    // 全員オールインならallin、そうでなければshowdown
-    const playersWithStack = activePlayers.filter(p => p.stack > 0.01);
-    if (playersWithStack.length === 0) {
+    // 全員オールインかチェック
+    const playersWhoCanAct = activePlayers.filter(p => p.stack > 0.01);
+    if (playersWhoCanAct.length === 0) {
       return 'allin';
     }
     
+    // それ以外はショーダウン
     return 'showdown';
-  }
-
-  /**
-   * PokerHand形式でエクスポート（既存のUIとの互換性）
-   */
-  exportToPokerHand(): Partial<PokerHand> {
-    return {
-      actions: this.actions,
-      potSize: this.street.pot,
-      currentPhase: this.street.phase,
-      stackSize: this.stackSize,
-      heroPosition: this.heroPosition,
-      result: this.handResult || undefined,
-      isComplete: this.isHandComplete(),
-    };
   }
 }
