@@ -288,7 +288,7 @@ interface StreetState {
   "potSize": 4.5,
   "timestamp": 1705555200000,
   "phase": "Preflop",
-  "opponentType": "Reg"
+  "opponentType": "Regular"
 }
 ```
 

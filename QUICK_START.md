@@ -247,7 +247,7 @@
 
 ```
 [Opponent Type] をタップ
-→ Reg / Fish / Nit から選択
+→ Regular / Fish から選択
 ```
 
 ### ハンドのリセット
