@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { PokerHandEngine, POSITION_ORDER } from './PokerHandEngine';
-import type { Position, ActionType, BoardState, OpponentType, OpponentStyle } from '@/types/poker';
+import type { Position, ActionType, BoardState, OpponentType, OpponentStyle, HandResult } from '@/types/poker';
 import { addDebugLog } from './debugLogger';
 
 /**

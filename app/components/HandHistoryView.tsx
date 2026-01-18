@@ -228,8 +228,8 @@ ${hand.actions.map((action, idx) => `${idx + 1}. ${action}`).join('\n')}
                         </div>
                       )}
 
-                      {/* Villain Type - Regは表示しない */}
-                      {hand.villainType !== 'Reg' && (
+                      {/* Villain Type - Regularは表示しない */}
+                      {hand.villainType !== 'Regular' && (
                         <div className="px-1.5 py-0.5 bg-gray-800 rounded text-[10px] font-medium text-gray-400">
                           {hand.villainType}
                         </div>
