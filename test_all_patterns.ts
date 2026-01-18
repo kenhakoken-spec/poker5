@@ -77,7 +77,7 @@ function testCannotRaiseMoreThanStack() {
   const bbPlayerAfter = state.players.find(p => p.position === 'BB');
   
   logTest('スタック内でオールインレイズ可能', 
-    (bbPlayerAfter?.stack === 0 || bbPlayerAfter?.stack < 0.01),
+    (bbPlayerAfter?.stack !== undefined && (bbPlayerAfter.stack === 0 || bbPlayerAfter.stack < 0.01)),
     `BB stack after all-in: ${bbPlayerAfter?.stack}`);
 }
 

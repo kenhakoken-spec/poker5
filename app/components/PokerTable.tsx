@@ -28,6 +28,7 @@ function createInitialHand(): PokerHand {
     potSize: 1.5, // SB + BB
     currentPhase: 'Preflop',
     currentOpponentType: 'Reg',
+    isComplete: false,
   };
 }
 
