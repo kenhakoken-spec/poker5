@@ -76,24 +76,6 @@ export function EnhancedPokerTable() {
     }
   }, [state.isReadyForResult, resultModalOpen, boardModalOpen, resultModalDismissed]);
 
-  // ハンド完了かつ結果が設定されたら自動保存
-  useEffect(() => {
-    if (state.isComplete && state.result && !savedHandRef.current) {
-      // ハンドを保存
-      saveHand(
-        state.heroPosition,
-        state.currentOpponentType,
-        state.board,
-        state.actions,
-        state.potSize,
-        state.heroHand
-      );
-      
-      // 保存済みフラグを設定
-      savedHandRef.current = `hand_${Date.now()}`;
-    }
-  }, [state.isComplete, state.result]); // 依存配列を最小限に（state.board/actionsは参照が変わりやすいため除外）
-
   // Get board cards for exclusion - useMemoを削除して直接計算
   const boardCards: string[] = [];
   if (state.board.flop) boardCards.push(...state.board.flop);
@@ -117,8 +99,23 @@ export function EnhancedPokerTable() {
 
   // Handle result submission
   const handleResultSubmit = (result: HandResult) => {
-    // 結果を設定（useEffectで自動保存される）
+    // 結果を設定
     setHandResult(result);
+    
+    // ハンドを保存（結果が確定した時点で保存）
+    if (!savedHandRef.current) {
+      saveHand(
+        state.heroPosition,
+        state.currentOpponentType,
+        state.board,
+        state.actions,
+        state.potSize,
+        state.heroHand
+      );
+      
+      // 保存済みフラグを設定
+      savedHandRef.current = `hand_${Date.now()}`;
+    }
     
     // モーダルを閉じる
     setResultModalOpen(false);
